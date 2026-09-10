@@ -1,0 +1,54 @@
+# CombatLock configuration
+# Reload in-game with /combatlock reload (requires combatlock.reload)
+
+# Verbose logging of combat locks/unlocks and blocked commands to the console.
+# Toggle in-game with /combatlock debug (requires combatlock.reload).
+debug: false
+
+combat:
+  aggressor-seconds: 15
+  defender-seconds: 10
+
+# Players with this permission are never combat-locked (as attacker or victim)
+# and their commands are never blocked. Set in plugin.yml, default: op.
+bypass-permission: combatlock.bypass
+
+# Commands blocked while a player is combat-locked.
+# Match against what the player actually types, WITHOUT the leading slash,
+# lower-case. Sub-commands are matched by prefix, so "t spawn" blocks
+# "/t spawn" and "/t spawn now" but not "/t spawnprotect".
+# Note: this matches the literal command/alias the player types, not the
+# resolved command after Bukkit alias resolution - list every alias you use.
+blocked-commands:
+  - "pw"
+  - "pwarp"
+  - "t spawn"
+  - "town spawn"
+  - "warp"
+  - "spawn"
+  - "tpa"
+  - "tp"
+  - "home"
+
+
+# Commands run from the console the moment a player enters (or re-enters)
+# combat, keyed by role. %player% is replaced with the player's name.
+on-combat-start:
+  aggressor:
+    - "fly off %player%"
+  defender:
+    - "fly off %player%"
+
+# Commands run from the console when a player's combat lock naturally expires
+# (i.e. they weren't hit again before the timer ran out), keyed by role.
+on-combat-end:
+  aggressor: []
+  defender: []
+
+messages:
+  command-blocked: "&cYou can't do that while in combat! (&e%time%s&c left)"
+  entered-combat-aggressor: "&cYou are in combat as the &4aggressor&c for %time%s."
+  entered-combat-defender: "&cYou are in combat as the &4defender&c for %time%s."
+  combat-ended: "&aYou are no longer in combat."
+  reload-success: "&aCombatLock configuration reloaded."
+  no-permission: "&cYou don't have permission to do that."

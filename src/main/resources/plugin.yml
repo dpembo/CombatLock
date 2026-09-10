@@ -1,0 +1,19 @@
+name: CombatLock
+version: '${project.version}'
+main: uk.co.pembo.combatlock.CombatLockPlugin
+api-version: '1.21'
+author: Dave
+description: Locks aggressors and defenders out of configured commands for a set time after PvP combat.
+
+commands:
+  combatlock:
+    description: Manage CombatLock's configuration
+    usage: /combatlock <reload|debug>
+
+permissions:
+  combatlock.bypass:
+    description: Never gets combat-locked or command-blocked
+    default: op
+  combatlock.reload:
+    description: Reload CombatLock's configuration
+    default: op
