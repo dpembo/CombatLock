@@ -3,14 +3,22 @@ package uk.co.pembo.combatlock;
 import uk.co.pembo.combatlock.listener.CombatDamageListener;
 import uk.co.pembo.combatlock.listener.CommandBlockListener;
 import uk.co.pembo.combatlock.listener.ElytraListener;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.UUID;
 
 public class CombatLockPlugin extends JavaPlugin implements Listener {
 
@@ -18,6 +26,7 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
     private ElytraListener elytraListener;
     private String bypassPermission;
     private boolean debug;
+    private BukkitTask elytraEnforceTask;
 
     @Override
     public void onEnable() {
@@ -32,12 +41,65 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new CommandBlockListener(this), this);
         getServer().getPluginManager().registerEvents(elytraListener, this);
         getServer().getPluginManager().registerEvents(this, this);
+
+        // Periodic safety net: every 5 ticks, force-stop glide / unequip for anyone still tagged.
+        // Event-based blocking alone is unreliable on Paper 26.x (client desync).
+        this.elytraEnforceTask = Bukkit.getScheduler().runTaskTimer(this, this::enforceElytraRestrictions, 5L, 5L);
+        getLogger().info("Elytra combat restrictions active (events + 5-tick enforcement).");
     }
 
     @Override
     public void onDisable() {
+        if (elytraEnforceTask != null) {
+            elytraEnforceTask.cancel();
+            elytraEnforceTask = null;
+        }
         if (combatManager != null) {
             combatManager.shutdown();
+        }
+    }
+
+    /**
+     * Runs every 5 ticks. For every combat-tagged player: stop gliding and
+     * optionally strip chest elytra. This is the reliable path on Paper 26.2.
+     */
+    private void enforceElytraRestrictions() {
+        if (!getConfig().getBoolean("elytra.block-glide", true)
+                && !getConfig().getBoolean("elytra.unequip-on-combat", true)) {
+            return;
+        }
+
+        for (UUID uuid : combatManager.getCombatUuids()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player == null || !player.isOnline()) {
+                continue;
+            }
+            if (player.hasPermission(bypassPermission)) {
+                continue;
+            }
+
+            if (getConfig().getBoolean("elytra.block-glide", true) && player.isGliding()) {
+                player.setGliding(false);
+                debug(player.getName() + " force-stopped glide (tick enforce)");
+            }
+
+            if (getConfig().getBoolean("elytra.unequip-on-combat", true)) {
+                PlayerInventory inv = player.getInventory();
+                ItemStack chest = inv.getChestplate();
+                if (chest != null && chest.getType() == Material.ELYTRA) {
+                    inv.setChestplate(null);
+                    var leftover = inv.addItem(chest);
+                    if (!leftover.isEmpty()) {
+                        for (ItemStack stack : leftover.values()) {
+                            player.getWorld().dropItemNaturally(player.getLocation(), stack);
+                        }
+                    }
+                    if (player.isGliding()) {
+                        player.setGliding(false);
+                    }
+                    debug(player.getName() + " unequipped elytra (tick enforce)");
+                }
+            }
         }
     }
 

@@ -32,6 +32,11 @@ public class CombatManager {
         return locks.containsKey(uuid);
     }
 
+    /** Snapshot of players currently combat-locked (for periodic elytra enforcement). */
+    public java.util.Set<UUID> getCombatUuids() {
+        return java.util.Set.copyOf(locks.keySet());
+    }
+
     public CombatRole getRole(UUID uuid) {
         Lock lock = locks.get(uuid);
         return lock == null ? null : lock.role();

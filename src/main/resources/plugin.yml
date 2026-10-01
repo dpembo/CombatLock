@@ -1,7 +1,7 @@
 name: CombatLock
 version: '${project.version}'
 main: uk.co.pembo.combatlock.CombatLockPlugin
-api-version: '1.21'
+api-version: '26.2'
 author: Dave
 description: Locks aggressors and defenders out of configured commands and elytra for a set time after PvP combat.
 
