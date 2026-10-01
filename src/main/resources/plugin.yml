@@ -3,7 +3,7 @@ version: '${project.version}'
 main: uk.co.pembo.combatlock.CombatLockPlugin
 api-version: '1.21'
 author: Dave
-description: Locks aggressors and defenders out of configured commands for a set time after PvP combat.
+description: Locks aggressors and defenders out of configured commands and elytra for a set time after PvP combat.
 
 commands:
   combatlock:
@@ -12,7 +12,7 @@ commands:
 
 permissions:
   combatlock.bypass:
-    description: Never gets combat-locked or command-blocked
+    description: Never gets combat-locked, command-blocked, or elytra-restricted
     default: op
   combatlock.reload:
     description: Reload CombatLock's configuration

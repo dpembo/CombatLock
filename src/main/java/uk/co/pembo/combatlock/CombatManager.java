@@ -80,6 +80,12 @@ public class CombatManager {
             plugin.debug(player.getName() + " entered combat as " + role + " for " + seconds + "s");
         }
 
+        // Force-stop elytra glide the moment combat starts (or is refreshed).
+        if (config.getBoolean("elytra.force-stop-on-combat", true) && player.isGliding()) {
+            player.setGliding(false);
+            plugin.debug(player.getName() + " force-stopped elytra glide on combat entry");
+        }
+
         String messageKey = "entered-combat-" + role.configKey();
         sendMessage(player, messageKey, "%time%", String.valueOf(seconds));
     }

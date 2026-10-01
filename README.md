@@ -1,20 +1,19 @@
 # CombatLock
 
-A lightweight Paper plugin that locks players out of configured commands for
-a short time after they take part in PvP combat.
+A lightweight Paper plugin that locks players out of configured commands (and
+optionally elytra) for a short time after they take part in PvP combat.
 
 ## Why?
 
 Without something like this, PvP combat is trivially cheesed with "hit and
 run" or "hit and fly" tactics: a player takes a hit or two, then teleports
-away with `/tp`, `/home`, `/warp`, or a town/faction `spawn` command, or
-simply pops `/fly` on and escapes upwards. CombatLock closes that loophole by
-tagging both participants in a PvP hit as being "in combat" and blocking a
-configurable list of commands (teleports, warps, homes, spawn commands, etc.)
-until the tag naturally expires. It can also run arbitrary console commands
-when a player enters or leaves combat, which is how it turns off `/fly` the
-moment a fight starts (via an Essentials-style `fly off` command) - so
-players can't just fly away either.
+away with `/tp`, `/home`, `/warp`, or a town/faction `spawn` command, pops
+`/fly` on, or simply launches with an elytra and rockets. CombatLock closes
+that loophole by tagging both participants in a PvP hit as being "in combat"
+and blocking a configurable list of commands until the tag naturally expires.
+It can also run arbitrary console commands when a player enters or leaves
+combat (used by default to force `/fly off`), and can cancel elytra glide /
+equip so players can't just fly away either.
 
 ## How it works
 
@@ -30,13 +29,17 @@ players can't just fly away either.
 - When a player *first* enters combat, the commands configured under
   `on-combat-start` for their role are run from the console (used by default
   to force `/fly off` on both the aggressor and defender).
+- While in combat, elytra is restricted (all configurable):
+  - Starting a glide is cancelled (`EntityToggleGlideEvent`).
+  - Equipping an elytra is blocked (right-click, inventory click, shift-click, drag).
+  - An active glide is force-stopped the moment the player enters combat.
 - When a player's lock expires naturally (i.e. they weren't hit again before
   the timer ran out), the commands under `on-combat-end` for their role are
   run, and they're shown the `combat-ended` message. If a player disconnects
   while locked, their lock is simply cancelled - no end-of-combat commands
   or messages are fired at an offline player.
-- Players with the bypass permission are never locked and never blocked,
-  whether they're the aggressor or the defender.
+- Players with the bypass permission are never locked, never command-blocked,
+  and never elytra-restricted, whether they're the aggressor or the defender.
 
 ## Commands
 
@@ -126,6 +129,21 @@ default - add your own commands here if you want something to happen when
 combat ends (e.g. re-enabling something you disabled on entry).
 
 ```yaml
+elytra:
+  block-glide: true
+  block-equip: true
+  force-stop-on-combat: true
+```
+Elytra restrictions while combat-locked:
+- `block-glide` – cancel starting a glide (`EntityToggleGlideEvent`).
+- `block-equip` – prevent equipping an elytra via right-click, inventory
+  click, shift-click, or drag onto the chest slot.
+- `force-stop-on-combat` – immediately call `player.setGliding(false)` when
+  the player enters (or re-enters) combat.
+
+Players with the bypass permission are exempt from all of the above.
+
+```yaml
 messages:
   command-blocked: "&cYou can't do that while in combat! (&e%time%s&c left)"
   entered-combat-aggressor: "&cYou are in combat as the &4aggressor&c for %time%s."
@@ -133,10 +151,12 @@ messages:
   combat-ended: "&aYou are no longer in combat."
   reload-success: "&aCombatLock configuration reloaded."
   no-permission: "&cYou don't have permission to do that."
+  elytra-glide-blocked: "&cYou can't use elytra while in combat! (&e%time%s&c left)"
+  elytra-equip-blocked: "&cYou can't equip elytra while in combat! (&e%time%s&c left)"
 ```
 Player-facing messages, with `&`-style colour codes. `%time%` is replaced
-with the relevant number of seconds (remaining lock time for
-`command-blocked`, full duration for the `entered-combat-*` messages).
+with the relevant number of seconds (remaining lock time for blocked
+messages, full duration for the `entered-combat-*` messages).
 
 ## Building
 

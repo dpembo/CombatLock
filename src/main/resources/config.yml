@@ -45,6 +45,15 @@ on-combat-end:
   aggressor: []
   defender: []
 
+# Elytra restrictions while combat-locked.
+elytra:
+  # Cancel starting a glide while in combat.
+  block-glide: true
+  # Prevent equipping an elytra (right-click, inventory click, shift-click, drag).
+  block-equip: true
+  # Immediately stop gliding when the player enters (or re-enters) combat.
+  force-stop-on-combat: true
+
 messages:
   command-blocked: "&cYou can't do that while in combat! (&e%time%s&c left)"
   entered-combat-aggressor: "&cYou are in combat as the &4aggressor&c for %time%s."
@@ -52,3 +61,5 @@ messages:
   combat-ended: "&aYou are no longer in combat."
   reload-success: "&aCombatLock configuration reloaded."
   no-permission: "&cYou don't have permission to do that."
+  elytra-glide-blocked: "&cYou can't use elytra while in combat! (&e%time%s&c left)"
+  elytra-equip-blocked: "&cYou can't equip elytra while in combat! (&e%time%s&c left)"

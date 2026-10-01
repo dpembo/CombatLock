@@ -2,6 +2,7 @@ package uk.co.pembo.combatlock;
 
 import uk.co.pembo.combatlock.listener.CombatDamageListener;
 import uk.co.pembo.combatlock.listener.CommandBlockListener;
+import uk.co.pembo.combatlock.listener.ElytraListener;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -29,6 +30,7 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(new CombatDamageListener(this), this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(this), this);
+        getServer().getPluginManager().registerEvents(new ElytraListener(this), this);
         getServer().getPluginManager().registerEvents(this, this);
     }
 
