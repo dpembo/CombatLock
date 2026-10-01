@@ -80,6 +80,11 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
 
             if (getConfig().getBoolean("elytra.block-glide", true) && player.isGliding()) {
                 player.setGliding(false);
+                player.setSwimming(false);
+                try {
+                    player.setPose(org.bukkit.entity.Pose.STANDING);
+                } catch (Throwable ignored) {
+                }
                 debug(player.getName() + " force-stopped glide (tick enforce)");
             }
 
@@ -150,7 +155,43 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
                     "&aCombatLock debug logging " + (this.debug ? "&2enabled" : "&4disabled") + "&a."));
             return true;
         }
-        sender.sendMessage("Usage: /combatlock <reload|debug [on|off]>");
+        if (args.length >= 1 && args[0].equalsIgnoreCase("status")) {
+            if (!sender.hasPermission("combatlock.reload")) {
+                sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                        getConfig().getString("messages.no-permission", "&cYou don't have permission to do that.")));
+                return true;
+            }
+            org.bukkit.entity.Player target;
+            if (args.length >= 2) {
+                target = Bukkit.getPlayerExact(args[1]);
+                if (target == null) {
+                    sender.sendMessage(ChatColor.RED + "Player not found: " + args[1]);
+                    return true;
+                }
+            } else if (sender instanceof org.bukkit.entity.Player player) {
+                target = player;
+            } else {
+                sender.sendMessage("Usage: /combatlock status [player]");
+                return true;
+            }
+            boolean inCombat = combatManager.isInCombat(target.getUniqueId());
+            long remaining = combatManager.getRemainingSeconds(target.getUniqueId());
+            org.bukkit.inventory.ItemStack chest = target.getInventory().getChestplate();
+            String chestType = (chest == null || chest.getType().isAir()) ? "EMPTY" : chest.getType().name();
+            sender.sendMessage(ChatColor.GOLD + "CombatLock status for " + target.getName() + ":");
+            sender.sendMessage(ChatColor.GRAY + "  inCombat=" + inCombat
+                    + " remaining=" + remaining + "s"
+                    + " role=" + combatManager.getRole(target.getUniqueId()));
+            sender.sendMessage(ChatColor.GRAY + "  gliding=" + target.isGliding()
+                    + " flying=" + target.isFlying()
+                    + " chest=" + chestType);
+            sender.sendMessage(ChatColor.GRAY + "  bypass=" + target.hasPermission(bypassPermission));
+            sender.sendMessage(ChatColor.GRAY + "  elytra.block-glide=" + getConfig().getBoolean("elytra.block-glide", true)
+                    + " unequip=" + getConfig().getBoolean("elytra.unequip-on-combat", true)
+                    + " riptide=" + getConfig().getBoolean("elytra.block-riptide", true));
+            return true;
+        }
+        sender.sendMessage("Usage: /combatlock <reload|debug [on|off]|status [player]>");
         return true;
     }
 

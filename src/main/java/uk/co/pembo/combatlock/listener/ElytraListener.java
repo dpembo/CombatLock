@@ -5,6 +5,8 @@ import com.destroystokyo.paper.event.player.PlayerElytraBoostEvent;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Pose;
+import org.bukkit.Location;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -15,6 +17,7 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerRiptideEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
@@ -49,13 +52,13 @@ public class ElytraListener implements Listener {
             return;
         }
 
-        // Always force off while in combat, whether starting or already gliding.
-        // Cancelling the event is optional and unreliable; setGliding(false) is what works.
+        // Cancel + hard stop. Client often stays in "lying down" pose if we only
+        // setGliding(false); reset pose/swimming and (throttled) resync location.
         event.setCancelled(true);
         if (player.isGliding() || event.isGliding()) {
-            player.setGliding(false);
+            stopGlideHard(player, false);
             sendBlockedThrottled(player, "elytra-glide-blocked");
-            plugin.debug(player.getName() + " force-stopped glide (toggle event)");
+            debugThrottled(player, "force-stopped glide (toggle event)");
         }
     }
 
@@ -83,9 +86,9 @@ public class ElytraListener implements Listener {
             return;
         }
 
-        player.setGliding(false);
+        stopGlideHard(player, false);
         sendBlockedThrottled(player, "elytra-glide-blocked");
-        plugin.debug(player.getName() + " force-stopped glide (move event)");
+        debugThrottled(player, "force-stopped glide (move event)");
     }
 
     /** Cancel firework rocket boosts while in combat. */
@@ -100,9 +103,9 @@ public class ElytraListener implements Listener {
         }
 
         event.setCancelled(true);
-        player.setGliding(false);
+        stopGlideHard(player, false);
         sendBlockedThrottled(player, "elytra-boost-blocked");
-        plugin.debug(player.getName() + " blocked elytra firework boost");
+        debugThrottled(player, "blocked elytra firework boost");
     }
 
     /** Block right-click equip of an elytra. */
@@ -213,9 +216,17 @@ public class ElytraListener implements Listener {
             return;
         }
 
+        ItemStack chest = player.getInventory().getChestplate();
+        String chestType = (chest == null || chest.getType().isAir()) ? "EMPTY" : chest.getType().name();
+        plugin.debug(player.getName() + " combat-enter state: gliding=" + player.isGliding()
+                + " chest=" + chestType
+                + " block-glide=" + plugin.getConfig().getBoolean("elytra.block-glide", true)
+                + " unequip=" + plugin.getConfig().getBoolean("elytra.unequip-on-combat", true));
+
         if (plugin.getConfig().getBoolean("elytra.force-stop-on-combat", true)) {
             if (player.isGliding()) {
-                player.setGliding(false);
+                // Full resync on combat entry (teleport) to clear stuck glide pose.
+                stopGlideHard(player, true);
                 plugin.debug(player.getName() + " force-stopped glide on combat entry");
             }
         }
@@ -225,10 +236,28 @@ public class ElytraListener implements Listener {
         }
     }
 
+    /** Cancel trident riptide propulsion while in combat (common escape tool). */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onRiptide(PlayerRiptideEvent event) {
+        if (!plugin.getConfig().getBoolean("elytra.block-riptide", true)) {
+            return;
+        }
+        Player player = event.getPlayer();
+        if (!shouldBlock(player)) {
+            return;
+        }
+        event.setCancelled(true);
+        // Kill residual velocity from client-side riptide.
+        player.setVelocity(player.getVelocity().multiply(0));
+        sendBlockedThrottled(player, "riptide-blocked");
+        plugin.debug(player.getName() + " blocked trident riptide while in combat");
+    }
+
     private void unequipElytra(Player player) {
         PlayerInventory inv = player.getInventory();
         ItemStack chest = inv.getChestplate();
         if (chest == null || chest.getType() != Material.ELYTRA) {
+            plugin.debug(player.getName() + " unequip skipped (chest is not ELYTRA)");
             return;
         }
 
@@ -239,10 +268,49 @@ public class ElytraListener implements Listener {
                 player.getWorld().dropItemNaturally(player.getLocation(), stack);
             }
         }
-        if (player.isGliding()) {
-            player.setGliding(false);
-        }
+        stopGlideHard(player, true);
         plugin.debug(player.getName() + " unequipped elytra on combat entry");
+    }
+
+
+    /**
+     * Force the player out of glide state and clear the client "lying down" pose.
+     * @param resync if true, teleport the player to their current location to
+     *               force a full client entity refresh (use on combat entry /
+     *               unequip; avoid on every move/toggle to prevent jank).
+     */
+    private void stopGlideHard(Player player, boolean resync) {
+        player.setGliding(false);
+        player.setSwimming(false);
+        // Clear fall-flying pose that often sticks after cancel/unequip on Paper.
+        try {
+            player.setPose(Pose.STANDING);
+        } catch (Throwable ignored) {
+            // Pose API should exist on 1.14+; ignore if something odd happens.
+        }
+        if (resync) {
+            Location loc = player.getLocation();
+            // Same-location teleport forces the client to refresh entity metadata.
+            player.teleport(loc);
+            player.setGliding(false);
+            player.setSwimming(false);
+            try {
+                player.setPose(Pose.STANDING);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private final java.util.Map<java.util.UUID, Long> lastDebugMillis = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void debugThrottled(Player player, String message) {
+        long now = System.currentTimeMillis();
+        Long last = lastDebugMillis.get(player.getUniqueId());
+        if (last != null && now - last < 1000L) {
+            return;
+        }
+        lastDebugMillis.put(player.getUniqueId(), now);
+        plugin.debug(player.getName() + " " + message);
     }
 
     private boolean shouldBlock(Player player) {

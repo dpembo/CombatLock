@@ -8,7 +8,7 @@ description: Locks aggressors and defenders out of configured commands and elytr
 commands:
   combatlock:
     description: Manage CombatLock's configuration
-    usage: /combatlock <reload|debug>
+    usage: /combatlock <reload|debug|status>
 
 permissions:
   combatlock.bypass:
