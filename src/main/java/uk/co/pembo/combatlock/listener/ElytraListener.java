@@ -1,6 +1,7 @@
 package uk.co.pembo.combatlock.listener;
 
 import uk.co.pembo.combatlock.CombatLockPlugin;
+import com.destroystokyo.paper.event.player.PlayerElytraBoostEvent;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -13,12 +14,18 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
 /**
- * Blocks elytra glide and equip while a player is combat-locked.
- * Also used by CombatManager to force-stop an active glide on combat entry.
+ * Blocks elytra while combat-locked.
+ * <p>
+ * Approach matches plugins known to work on Paper 26.2:
+ * do <b>not</b> rely on cancelling {@link EntityToggleGlideEvent} alone
+ * (client desync). Instead force {@code setGliding(false)} on toggle and
+ * on every {@link PlayerMoveEvent} while tagged, cancel firework boosts,
+ * block equip, and unequip on combat entry.
  */
 public class ElytraListener implements Listener {
 
@@ -28,33 +35,78 @@ public class ElytraListener implements Listener {
         this.plugin = plugin;
     }
 
-    /** Cancel starting a glide while in combat. */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    /**
+     * When the player tries to start (or is forced into) glide while tagged:
+     * force glide off. Do not depend on event cancellation — Paper clients
+     * often ignore it.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onToggleGlide(EntityToggleGlideEvent event) {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
-        // Only care about *starting* a glide, not landing.
-        if (!event.isGliding()) {
+        if (!shouldBlockGlide(player)) {
             return;
         }
+
+        // Always force off while in combat, whether starting or already gliding.
+        // Cancelling the event is optional and unreliable; setGliding(false) is what works.
+        event.setCancelled(true);
+        if (player.isGliding() || event.isGliding()) {
+            player.setGliding(false);
+            sendBlockedThrottled(player, "elytra-glide-blocked");
+            plugin.debug(player.getName() + " force-stopped glide (toggle event)");
+        }
+    }
+
+    /**
+     * Continuous enforcement: every movement while tagged and gliding,
+     * force glide off. This is the approach used by working 26.2 plugins.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMove(PlayerMoveEvent event) {
+        // Only act on actual position changes to limit work (ignore look-only).
+        if (event.getTo() == null) {
+            return;
+        }
+        if (event.getFrom().getBlockX() == event.getTo().getBlockX()
+                && event.getFrom().getBlockY() == event.getTo().getBlockY()
+                && event.getFrom().getBlockZ() == event.getTo().getBlockZ()) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if (!player.isGliding()) {
+            return;
+        }
+        if (!shouldBlockGlide(player)) {
+            return;
+        }
+
+        player.setGliding(false);
+        sendBlockedThrottled(player, "elytra-glide-blocked");
+        plugin.debug(player.getName() + " force-stopped glide (move event)");
+    }
+
+    /** Cancel firework rocket boosts while in combat. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onElytraBoost(PlayerElytraBoostEvent event) {
+        Player player = event.getPlayer();
         if (!shouldBlock(player)) {
             return;
         }
-        if (!plugin.getConfig().getBoolean("elytra.block-glide", true)) {
+        if (!plugin.getConfig().getBoolean("elytra.block-boost", true)) {
             return;
         }
 
         event.setCancelled(true);
-        sendBlocked(player, "elytra-glide-blocked");
-        plugin.debug(player.getName() + " blocked from starting elytra glide while in combat");
+        player.setGliding(false);
+        sendBlockedThrottled(player, "elytra-boost-blocked");
+        plugin.debug(player.getName() + " blocked elytra firework boost");
     }
 
-    /**
-     * Block right-click equip of an elytra (vanilla "equip from hand" behaviour)
-     * while in combat.
-     */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    /** Block right-click equip of an elytra. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInteractEquip(PlayerInteractEvent event) {
         if (!plugin.getConfig().getBoolean("elytra.block-equip", true)) {
             return;
@@ -69,20 +121,18 @@ public class ElytraListener implements Listener {
             return;
         }
 
-        // Right-click with elytra in hand equips it if chest slot is free/empty enough.
-        // Cancel the interaction so it cannot equip.
         switch (event.getAction()) {
             case RIGHT_CLICK_AIR, RIGHT_CLICK_BLOCK -> {
                 event.setCancelled(true);
-                sendBlocked(player, "elytra-equip-blocked");
-                plugin.debug(player.getName() + " blocked from equipping elytra via interact while in combat");
+                sendBlockedThrottled(player, "elytra-equip-blocked");
+                plugin.debug(player.getName() + " blocked elytra equip (interact)");
             }
             default -> { /* ignore */ }
         }
     }
 
-    /** Block inventory clicks that would place an elytra into the chestplate slot. */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    /** Block inventory clicks that put elytra into the chest slot. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!plugin.getConfig().getBoolean("elytra.block-equip", true)) {
             return;
@@ -93,8 +143,6 @@ public class ElytraListener implements Listener {
         if (!shouldBlock(player)) {
             return;
         }
-
-        // Only care about the player's own inventory / crafting view.
         if (event.getClickedInventory() == null) {
             return;
         }
@@ -103,47 +151,38 @@ public class ElytraListener implements Listener {
         ItemStack current = event.getCurrentItem();
         int rawSlot = event.getRawSlot();
         ClickType click = event.getClick();
-
-        // Chestplate slot in player inventory is raw slot 6 in the player view
-        // (crafting slots 0-4, armor 5-8: helmet=5, chest=6, legs=7, boots=8).
         boolean targetingChestSlot = isPlayerChestSlot(event, rawSlot);
 
-        // Cursor has elytra and click places it into chest slot
         if (targetingChestSlot && cursor != null && cursor.getType() == Material.ELYTRA) {
             event.setCancelled(true);
-            sendBlocked(player, "elytra-equip-blocked");
-            plugin.debug(player.getName() + " blocked from placing elytra into chest slot while in combat");
+            sendBlockedThrottled(player, "elytra-equip-blocked");
             return;
         }
 
-        // Shift-click elytra from inventory into armor
         if (click.isShiftClick() && current != null && current.getType() == Material.ELYTRA) {
-            // Shift-click of armor items auto-equips if possible
             PlayerInventory inv = player.getInventory();
             ItemStack chest = inv.getChestplate();
-            if (chest == null || chest.getType() == Material.AIR || chest.getType() == Material.ELYTRA) {
+            if (chest == null || chest.getType().isAir() || chest.getType() == Material.ELYTRA) {
                 event.setCancelled(true);
-                sendBlocked(player, "elytra-equip-blocked");
-                plugin.debug(player.getName() + " blocked from shift-click equipping elytra while in combat");
+                sendBlockedThrottled(player, "elytra-equip-blocked");
             }
+            return;
         }
 
-        // Number-key hotbar swap into chest slot
         if (targetingChestSlot && click == ClickType.NUMBER_KEY) {
             int hotbar = event.getHotbarButton();
             if (hotbar >= 0) {
                 ItemStack hotbarItem = player.getInventory().getItem(hotbar);
                 if (hotbarItem != null && hotbarItem.getType() == Material.ELYTRA) {
                     event.setCancelled(true);
-                    sendBlocked(player, "elytra-equip-blocked");
-                    plugin.debug(player.getName() + " blocked from number-key equipping elytra while in combat");
+                    sendBlockedThrottled(player, "elytra-equip-blocked");
                 }
             }
         }
     }
 
-    /** Block drag-and-drop that ends with elytra over the chest slot. */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    /** Block dragging elytra onto the chest slot. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryDrag(InventoryDragEvent event) {
         if (!plugin.getConfig().getBoolean("elytra.block-equip", true)) {
             return;
@@ -159,13 +198,51 @@ public class ElytraListener implements Listener {
         if (old == null || old.getType() != Material.ELYTRA) {
             return;
         }
-
-        // Raw slot 6 is the chestplate slot in the standard player inventory view.
         if (event.getRawSlots().contains(6)) {
             event.setCancelled(true);
-            sendBlocked(player, "elytra-equip-blocked");
-            plugin.debug(player.getName() + " blocked from dragging elytra onto chest slot while in combat");
+            sendBlockedThrottled(player, "elytra-equip-blocked");
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Called from CombatManager on combat entry
+    // -------------------------------------------------------------------------
+
+    public void onCombatEnter(Player player) {
+        if (player.hasPermission(plugin.getBypassPermission())) {
+            return;
+        }
+
+        if (plugin.getConfig().getBoolean("elytra.force-stop-on-combat", true)) {
+            if (player.isGliding()) {
+                player.setGliding(false);
+                plugin.debug(player.getName() + " force-stopped glide on combat entry");
+            }
+        }
+
+        if (plugin.getConfig().getBoolean("elytra.unequip-on-combat", true)) {
+            unequipElytra(player);
+        }
+    }
+
+    private void unequipElytra(Player player) {
+        PlayerInventory inv = player.getInventory();
+        ItemStack chest = inv.getChestplate();
+        if (chest == null || chest.getType() != Material.ELYTRA) {
+            return;
+        }
+
+        inv.setChestplate(null);
+        var leftover = inv.addItem(chest);
+        if (!leftover.isEmpty()) {
+            for (ItemStack stack : leftover.values()) {
+                player.getWorld().dropItemNaturally(player.getLocation(), stack);
+            }
+        }
+        if (player.isGliding()) {
+            player.setGliding(false);
+        }
+        plugin.debug(player.getName() + " unequipped elytra on combat entry");
     }
 
     private boolean shouldBlock(Player player) {
@@ -175,7 +252,24 @@ public class ElytraListener implements Listener {
         return plugin.getCombatManager().isInCombat(player.getUniqueId());
     }
 
-    private void sendBlocked(Player player, String messageKey) {
+    private boolean shouldBlockGlide(Player player) {
+        if (!plugin.getConfig().getBoolean("elytra.block-glide", true)) {
+            return false;
+        }
+        return shouldBlock(player);
+    }
+
+    /** Throttle denial messages so move-event spam does not flood chat. */
+    private final java.util.Map<java.util.UUID, Long> lastMessageMillis = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void sendBlockedThrottled(Player player, String messageKey) {
+        long now = System.currentTimeMillis();
+        Long last = lastMessageMillis.get(player.getUniqueId());
+        if (last != null && now - last < 2000L) {
+            return; // at most one message every 2 seconds
+        }
+        lastMessageMillis.put(player.getUniqueId(), now);
+
         long remaining = plugin.getCombatManager().getRemainingSeconds(player.getUniqueId());
         String raw = plugin.getConfig().getString("messages." + messageKey, "");
         if (raw == null || raw.isEmpty()) {
@@ -185,12 +279,6 @@ public class ElytraListener implements Listener {
         player.sendMessage(ChatColor.translateAlternateColorCodes('&', raw));
     }
 
-    /**
-     * Detects whether the clicked raw slot is the player's chestplate slot.
-     * In the standard player inventory view, armor slots are raw 5–8
-     * (helmet, chest, legs, boots). Chestplate is raw slot 6.
-     * PlayerInventory storage index for chestplate is 38.
-     */
     private boolean isPlayerChestSlot(InventoryClickEvent event, int rawSlot) {
         InventoryType topType = event.getView().getTopInventory().getType();
         if (topType == InventoryType.CRAFTING || topType == InventoryType.PLAYER) {

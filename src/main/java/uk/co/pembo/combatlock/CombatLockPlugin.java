@@ -12,11 +12,10 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.List;
-
 public class CombatLockPlugin extends JavaPlugin implements Listener {
 
     private CombatManager combatManager;
+    private ElytraListener elytraListener;
     private String bypassPermission;
     private boolean debug;
 
@@ -28,9 +27,10 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
         this.bypassPermission = getConfig().getString("bypass-permission", "combatlock.bypass");
         this.debug = getConfig().getBoolean("debug", false);
 
+        this.elytraListener = new ElytraListener(this);
         getServer().getPluginManager().registerEvents(new CombatDamageListener(this), this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(this), this);
-        getServer().getPluginManager().registerEvents(new ElytraListener(this), this);
+        getServer().getPluginManager().registerEvents(elytraListener, this);
         getServer().getPluginManager().registerEvents(this, this);
     }
 
@@ -94,6 +94,10 @@ public class CombatLockPlugin extends JavaPlugin implements Listener {
 
     public CombatManager getCombatManager() {
         return combatManager;
+    }
+
+    public ElytraListener getElytraListener() {
+        return elytraListener;
     }
 
     public String getBypassPermission() {

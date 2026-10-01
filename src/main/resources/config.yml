@@ -46,13 +46,20 @@ on-combat-end:
   defender: []
 
 # Elytra restrictions while combat-locked.
+# Cancelling EntityToggleGlideEvent alone is unreliable on modern Paper —
+# the client can stay in glide. These options stack for a solid block.
 elytra:
-  # Cancel starting a glide while in combat.
+  # Cancel starting a glide + force setGliding(false) (now and next tick).
   block-glide: true
+  # Cancel PlayerElytraBoostEvent (firework rockets while gliding).
+  block-boost: true
   # Prevent equipping an elytra (right-click, inventory click, shift-click, drag).
   block-equip: true
   # Immediately stop gliding when the player enters (or re-enters) combat.
   force-stop-on-combat: true
+  # Move equipped elytra into inventory (or drop at feet if full) on combat entry.
+  # This is the most reliable way to stop mid-air escape on Paper 26.x.
+  unequip-on-combat: true
 
 messages:
   command-blocked: "&cYou can't do that while in combat! (&e%time%s&c left)"
@@ -63,3 +70,4 @@ messages:
   no-permission: "&cYou don't have permission to do that."
   elytra-glide-blocked: "&cYou can't use elytra while in combat! (&e%time%s&c left)"
   elytra-equip-blocked: "&cYou can't equip elytra while in combat! (&e%time%s&c left)"
+  elytra-boost-blocked: "&cYou can't boost with fireworks while in combat! (&e%time%s&c left)"

@@ -30,9 +30,10 @@ equip so players can't just fly away either.
   `on-combat-start` for their role are run from the console (used by default
   to force `/fly off` on both the aggressor and defender).
 - While in combat, elytra is restricted (all configurable):
-  - Starting a glide is cancelled (`EntityToggleGlideEvent`).
+  - Starting a glide is cancelled and the player is force-stopped (now + next tick).
+  - Firework rocket boosts are cancelled (`PlayerElytraBoostEvent`).
   - Equipping an elytra is blocked (right-click, inventory click, shift-click, drag).
-  - An active glide is force-stopped the moment the player enters combat.
+  - On combat entry the equipped elytra is moved to inventory (or dropped if full).
 - When a player's lock expires naturally (i.e. they weren't hit again before
   the timer ran out), the commands under `on-combat-end` for their role are
   run, and they're shown the `combat-ended` message. If a player disconnects
@@ -131,15 +132,21 @@ combat ends (e.g. re-enabling something you disabled on entry).
 ```yaml
 elytra:
   block-glide: true
+  block-boost: true
   block-equip: true
   force-stop-on-combat: true
+  unequip-on-combat: true
 ```
-Elytra restrictions while combat-locked:
-- `block-glide` – cancel starting a glide (`EntityToggleGlideEvent`).
+Elytra restrictions while combat-locked (all default **true**):
+- `block-glide` – cancel starting a glide (`EntityToggleGlideEvent`) and
+  force `setGliding(false)` now and next tick (needed because cancel alone
+  is unreliable on modern Paper).
+- `block-boost` – cancel `PlayerElytraBoostEvent` (firework rockets).
 - `block-equip` – prevent equipping an elytra via right-click, inventory
   click, shift-click, or drag onto the chest slot.
-- `force-stop-on-combat` – immediately call `player.setGliding(false)` when
-  the player enters (or re-enters) combat.
+- `force-stop-on-combat` – stop gliding when the player enters combat.
+- `unequip-on-combat` – move the equipped elytra into inventory (or drop
+  at feet if full). This is the most reliable way to stop mid-air escape.
 
 Players with the bypass permission are exempt from all of the above.
 
@@ -153,6 +160,7 @@ messages:
   no-permission: "&cYou don't have permission to do that."
   elytra-glide-blocked: "&cYou can't use elytra while in combat! (&e%time%s&c left)"
   elytra-equip-blocked: "&cYou can't equip elytra while in combat! (&e%time%s&c left)"
+  elytra-boost-blocked: "&cYou can't boost with fireworks while in combat! (&e%time%s&c left)"
 ```
 Player-facing messages, with `&`-style colour codes. `%time%` is replaced
 with the relevant number of seconds (remaining lock time for blocked
